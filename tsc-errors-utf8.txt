@@ -1,0 +1,12 @@
+﻿app/api/analyze/route.ts(33,20): error TS2345: Argument of type 'SimpleGit' is not assignable to parameter of type 'string'.
+app/api/analyze/route.ts(34,23): error TS2345: Argument of type 'SimpleGit' is not assignable to parameter of type 'string'.
+app/api/analyze/route.ts(35,26): error TS2345: Argument of type 'SimpleGit' is not assignable to parameter of type 'string'.
+app/api/analyze/route.ts(36,24): error TS2345: Argument of type 'SimpleGit' is not assignable to parameter of type 'string'.
+app/api/analyze/route.ts(37,29): error TS2345: Argument of type 'SimpleGit' is not assignable to parameter of type 'string'.
+app/api/analyze/route.ts(40,48): error TS2345: Argument of type 'SimpleGit' is not assignable to parameter of type 'string'.
+app/api/departure/simulate/route.ts(28,49): error TS2345: Argument of type 'SimpleGit' is not assignable to parameter of type 'string'.
+cli.ts(27,7): error TS2554: Expected 2 arguments, but got 1.
+cli.ts(28,23): error TS2345: Argument of type 'SimpleGit' is not assignable to parameter of type 'string'.
+cli.ts(29,26): error TS2345: Argument of type 'SimpleGit' is not assignable to parameter of type 'string'.
+cli.ts(30,7): error TS2554: Expected 2-3 arguments, but got 1.
+cli.ts(32,30): error TS2554: Expected 3 arguments, but got 2.

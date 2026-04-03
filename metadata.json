@@ -1,0 +1,5 @@
+{
+  "name": "GitLens Intelligence",
+  "description": "Local-first developer intelligence platform that analyzes Git repositories to surface code hotspots, knowledge silos, and team risk signals.",
+  "requestFramePermissions": []
+}
