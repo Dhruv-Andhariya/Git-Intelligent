@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { simpleGit } from 'simple-git';
 import os from 'os';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
+
+async function isGitAvailable(): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['--version']);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,6 +27,14 @@ export async function POST(req: NextRequest) {
     const tmpDir = os.tmpdir();
     const repoHash = Buffer.from(url).toString('base64').replace(/[^a-zA-Z0-9]/g, '');
     const targetPath = path.join(tmpDir, `gitlens-repo-${repoHash}`);
+
+    // Check that a `git` binary is available in the runtime before attempting to spawn it.
+    if (!(await isGitAvailable())) {
+      return new NextResponse(
+        'Server does not have `git` installed (spawn git ENOENT). Cloning is not supported in this environment. Provide repository contents another way (archive or use the GitHub API) or deploy to an environment with git.',
+        { status: 400 }
+      );
+    }
 
     const git = simpleGit();
     
