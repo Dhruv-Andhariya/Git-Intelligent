@@ -41,14 +41,27 @@ export async function POST(req: NextRequest) {
   let repoPathToGc: string | null = null;
   try {
     const { repo_path, branch } = await req.json();
+    console.log('[analyze] Request received for repo:', repo_path, 'branch:', branch);
     repoPathToGc = repo_path;
 
-    if (!repo_path || !(await fsPromises.stat(repo_path).catch(() => null))) {
+    if (!repo_path) {
+      console.error('[analyze] No repo_path provided');
+      return NextResponse.json({ error: 'repo_path is required' }, { status: 400 });
+    }
+
+    // Check if path exists
+    try {
+      const stat = await fsPromises.stat(repo_path);
+      console.log('[analyze] Repo path exists, isDirectory:', stat.isDirectory());
+    } catch (e) {
+      console.error('[analyze] Repo path does not exist:', repo_path, e);
       return NextResponse.json({ error: 'Invalid or non-existent repository path.' }, { status: 400 });
     }
 
     const git = getGitClient(repo_path);
+    console.log('[analyze] Git client created');
     const hasGitDir = fs.existsSync(path.join(repo_path, '.git'));
+    console.log('[analyze] Has .git directory:', hasGitDir);
 
     let availableBranches: string[] = [];
     let currentBranch = 'main';
@@ -58,8 +71,10 @@ export async function POST(req: NextRequest) {
 
     // Only perform git operations if .git directory exists
     if (hasGitDir) {
+      console.log('[analyze] Detecting git repo...');
       // Verify it's a git repo
       const isRepo = await git.checkIsRepo().catch(() => false);
+      console.log('[analyze] Is git repo:', isRepo);
       if (!isRepo) {
         return NextResponse.json({ error: 'Path is not a git repository.' }, { status: 400 });
       }
@@ -73,6 +88,7 @@ export async function POST(req: NextRequest) {
       ));
       currentBranch = branchSummary.current || availableBranches[0] || 'main';
       requestedBranch = branch || currentBranch;
+      console.log('[analyze] Available branches:', availableBranches, 'current:', currentBranch);
 
       // Resolve a locally valid git ref (handles cloned repos where branches are remote-only)
       targetBranch = requestedBranch;
@@ -101,12 +117,13 @@ export async function POST(req: NextRequest) {
       activeFilesSet = new Set(activeFilesList);
     } else {
       // For archive-extracted repos without .git, list files from the filesystem
+      console.log('[analyze] No .git directory, using filesystem walk for files...');
       try {
         const filesList = await walkDirectory(repo_path);
         activeFilesSet = new Set(filesList);
-        console.log(`Found ${filesList.length} files from archive-extracted repo`);
+        console.log(`[analyze] Found ${filesList.length} files from archive-extracted repo`);
       } catch (e) {
-        console.warn('Failed to list files from archive-extracted repo:', e);
+        console.error('[analyze] Failed to list files from archive-extracted repo:', e);
         activeFilesSet = new Set();
       }
     }
@@ -134,11 +151,15 @@ export async function POST(req: NextRequest) {
       if (results[3].status === 'fulfilled') busFactor = results[3].value;
       if (results[4].status === 'fulfilled') knowledgeDecay = results[4].value;
       
-      automation = await analyzeAutomation(repo_path, churn, busFactor).catch(() => ({ hasCI: false, hasCoverage: false, automationScore: 0 }));
+      automation = await analyzeAutomation(repo_path, churn, busFactor).catch((e) => {
+        console.error('[analyze] Automation analysis error:', e);
+        return { hasCI: false, hasCoverage: false, automationScore: 0 };
+      });
     } catch (analyzerError: any) {
-      console.error('Analyzer error:', analyzerError);
+      console.error('[analyze] Analyzer error:', analyzerError);
       // Continue with empty defaults
     }
+    console.log('[analyze] Analysis complete. Results:', { churn: !!churn, workload: !!workload, commitTypes: !!commitTypes, busFactor: !!busFactor, knowledgeDecay: !!knowledgeDecay, automation: !!automation });
 
     let repoName = 'repository';
     try {
@@ -176,12 +197,18 @@ export async function POST(req: NextRequest) {
     };
 
     // Save to SQLite
-    saveAnalysis(repo_path, result);
+    try {
+      saveAnalysis(repo_path, result);
+      console.log('[analyze] Results saved to database');
+    } catch (e) {
+      console.error('[analyze] Failed to save results to database:', e);
+    }
 
     return NextResponse.json(result);
   } catch (error: any) {
-    console.error('Analysis error:', error);
-    return NextResponse.json({ error: 'Failed to analyze repository' }, { status: 500 });
+    console.error('[analyze] FATAL Analysis error:', error);
+    console.error('[analyze] Error stack:', error?.stack);
+    return NextResponse.json({ error: 'Failed to analyze repository', details: error?.message || 'Unknown error' }, { status: 500 });
   } finally {
     // Phase 4: Garbage Collection
     // Disabled here because the repository MUST persist on disk 
