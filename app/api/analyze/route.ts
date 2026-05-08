@@ -7,21 +7,28 @@ import path from 'path';
 import os from 'os';
 
 // Helper to recursively list files in a directory
-async function walkDirectory(dir: string, baseDir: string = dir): Promise<string[]> {
+async function walkDirectory(dir: string, baseDir: string = dir, depth: number = 0, maxDepth: number = 10): Promise<string[]> {
   const files: string[] = [];
+  if (depth > maxDepth) return files; // Prevent deep recursion
+
   try {
     const entries = await fsPromises.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       // Skip node_modules, .git, .next, etc.
-      if (['.git', 'node_modules', '.next', '.vercel', 'dist', 'build', '.env', '.env.local'].includes(entry.name)) {
+      if (['.git', 'node_modules', '.next', '.vercel', 'dist', 'build', '.env', '.env.local', '.github', '.gitignore'].includes(entry.name)) {
         continue;
       }
       const fullPath = path.join(dir, entry.name);
       const relativePath = path.relative(baseDir, fullPath);
-      if (entry.isDirectory()) {
-        files.push(...await walkDirectory(fullPath, baseDir));
-      } else {
-        files.push(relativePath);
+      try {
+        if (entry.isDirectory()) {
+          files.push(...await walkDirectory(fullPath, baseDir, depth + 1, maxDepth));
+        } else {
+          files.push(relativePath);
+        }
+      } catch (e) {
+        // Skip entries that can't be read
+        console.warn(`Failed to process ${fullPath}:`, e);
       }
     }
   } catch (e) {
@@ -83,7 +90,12 @@ export async function POST(req: NextRequest) {
       try {
          lsTreeRaw = await git.raw(['ls-tree', '-r', targetBranch, '--name-only']);
       } catch(e) {
-         lsTreeRaw = await git.raw(['ls-tree', '-r', 'HEAD', '--name-only']);
+         try {
+           lsTreeRaw = await git.raw(['ls-tree', '-r', 'HEAD', '--name-only']);
+         } catch (e2) {
+           console.warn('Failed to get file tree from git:', e2);
+           lsTreeRaw = '';
+         }
       }
       const activeFilesList = lsTreeRaw.split('\n').map(f => f.trim()).filter(Boolean);
       activeFilesSet = new Set(activeFilesList);
@@ -92,21 +104,41 @@ export async function POST(req: NextRequest) {
       try {
         const filesList = await walkDirectory(repo_path);
         activeFilesSet = new Set(filesList);
+        console.log(`Found ${filesList.length} files from archive-extracted repo`);
       } catch (e) {
         console.warn('Failed to list files from archive-extracted repo:', e);
         activeFilesSet = new Set();
       }
     }
 
-    // Run analyzers in parallel
-    const [churn, workload, commitTypes, busFactor, knowledgeDecay] = await Promise.all([
-      analyzeChurn(repo_path, activeFilesSet, targetBranch),
-      analyzeWorkload(repo_path, targetBranch),
-      analyzeCommitTypes(repo_path, targetBranch),
-      analyzeBusFactor(repo_path, activeFilesSet, undefined, targetBranch),
-      analyzeKnowledgeDecay(repo_path, activeFilesSet, targetBranch)
-    ]);
-    const automation = await analyzeAutomation(repo_path, churn, busFactor);
+    // Run analyzers in parallel with error handling
+    let churn: any = { labels: [], data: [] };
+    let workload: any = { devs: [], counts: [], topContributor: null, totalCommits: 0 };
+    let commitTypes: any = { feat: 0, fix: 0, refactor: 0, chore: 0, other: 0 };
+    let busFactor: any = { score: 10, flaggedFiles: [] };
+    let knowledgeDecay: any = { healthScore: 0, files: [] };
+    let automation: any = { hasCI: false, hasCoverage: false, automationScore: 0 };
+
+    try {
+      const results = await Promise.allSettled([
+        analyzeChurn(repo_path, activeFilesSet, targetBranch),
+        analyzeWorkload(repo_path, targetBranch),
+        analyzeCommitTypes(repo_path, targetBranch),
+        analyzeBusFactor(repo_path, activeFilesSet, undefined, targetBranch),
+        analyzeKnowledgeDecay(repo_path, activeFilesSet, targetBranch)
+      ]);
+      
+      if (results[0].status === 'fulfilled') churn = results[0].value;
+      if (results[1].status === 'fulfilled') workload = results[1].value;
+      if (results[2].status === 'fulfilled') commitTypes = results[2].value;
+      if (results[3].status === 'fulfilled') busFactor = results[3].value;
+      if (results[4].status === 'fulfilled') knowledgeDecay = results[4].value;
+      
+      automation = await analyzeAutomation(repo_path, churn, busFactor).catch(() => ({ hasCI: false, hasCoverage: false, automationScore: 0 }));
+    } catch (analyzerError: any) {
+      console.error('Analyzer error:', analyzerError);
+      // Continue with empty defaults
+    }
 
     let repoName = 'repository';
     try {
