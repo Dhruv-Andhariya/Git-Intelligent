@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGitClient, analyzeBusFactor } from '@/lib/git-analyzer';
 import { getHistory } from '@/lib/db';
+import { simulateDepartureFromOwnership } from '@/lib/github-archive-analyzer';
 import { promises as fsPromises } from 'fs';
 
 export async function POST(req: NextRequest) {
@@ -21,6 +22,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Please run a full analysis first.' }, { status: 400 });
     }
     const originalBusFactor = history[0].snapshot.busFactor;
+    const busFactorDetails = history[0].snapshot.busFactorDetails;
+
+    if (busFactorDetails?.fileAuthors) {
+      const archiveDeparture = simulateDepartureFromOwnership(busFactorDetails, developer);
+      const result = {
+        before: { score: originalBusFactor.score, flaggedFiles: originalBusFactor.flaggedFiles.length },
+        after: archiveDeparture.after,
+        orphanedFiles: archiveDeparture.orphanedFiles,
+        developer
+      };
+
+      return NextResponse.json(result);
+    }
 
     const git = getGitClient(repo_path);
     

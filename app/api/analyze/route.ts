@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGitClient, analyzeChurn, analyzeWorkload, analyzeCommitTypes, analyzeBusFactor, analyzeAutomation, analyzeKnowledgeDecay } from '@/lib/git-analyzer';
+import { analyzeGitHubArchive, readRepoSourceInfo } from '@/lib/github-archive-analyzer';
 import { saveAnalysis } from '@/lib/db';
 import { promises as fsPromises } from 'fs';
 import * as fs from 'fs';
@@ -62,6 +63,8 @@ export async function POST(req: NextRequest) {
     console.log('[analyze] Git client created');
     const hasGitDir = fs.existsSync(path.join(repo_path, '.git'));
     console.log('[analyze] Has .git directory:', hasGitDir);
+    const repoSource = await readRepoSourceInfo(repo_path);
+    console.log('[analyze] Repo source metadata:', repoSource ? `${repoSource.owner}/${repoSource.repo}@${repoSource.branch}` : 'none');
 
     let availableBranches: string[] = [];
     let currentBranch = 'main';
@@ -128,6 +131,25 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (!hasGitDir && repoSource) {
+      console.log('[analyze] Using GitHub archive analysis fallback');
+      const archiveResult = await analyzeGitHubArchive(repo_path, repoSource, activeFilesSet);
+      const result = {
+        ...archiveResult,
+        analyzedAt: new Date().toISOString(),
+        source: 'github-archive',
+      };
+
+      try {
+        saveAnalysis(repo_path, result);
+        console.log('[analyze] Archive results saved to database');
+      } catch (e) {
+        console.error('[analyze] Failed to save archive results to database:', e);
+      }
+
+      return NextResponse.json(result);
+    }
+
     // Run analyzers in parallel with error handling
     let churn: any = { labels: [], data: [] };
     let workload: any = { devs: [], counts: [], topContributor: null, totalCommits: 0 };
@@ -190,6 +212,7 @@ export async function POST(req: NextRequest) {
       analyzedAt: new Date().toISOString(),
       churn,
       busFactor,
+      busFactorDetails: { fileAuthors: {}, authors: [] },
       workload,
       commitTypes,
       automation,

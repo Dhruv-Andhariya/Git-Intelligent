@@ -36,6 +36,11 @@ function parseGitHubUrl(url: string): { owner: string; repo: string; branch: str
   return null;
 }
 
+async function writeRepoMetadata(targetPath: string, metadata: { owner: string; repo: string; branch: string; sourceUrl: string; method: string }) {
+  const metaPath = path.join(targetPath, '.gitlens-meta.json');
+  await fsPromises.writeFile(metaPath, JSON.stringify(metadata, null, 2), 'utf8');
+}
+
 // Simple tar.gz extraction using Node.js (no external dependencies needed)
 async function extractTarGz(source: string, dest: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -157,6 +162,16 @@ export async function POST(req: NextRequest) {
       try {
         const files = await fsPromises.readdir(targetPath);
         if (files.length > 0) {
+          const gitHubInfo = parseGitHubUrl(url);
+          if (gitHubInfo) {
+            await writeRepoMetadata(targetPath, {
+              owner: gitHubInfo.owner,
+              repo: gitHubInfo.repo,
+              branch: gitHubInfo.branch,
+              sourceUrl: url,
+              method: 'cached',
+            }).catch(() => undefined);
+          }
           return NextResponse.json({ path: targetPath, cached: true });
         }
       } catch (e) {
@@ -169,6 +184,16 @@ export async function POST(req: NextRequest) {
       try {
         const git = simpleGit();
         await git.clone(url, targetPath);
+        const gitHubInfo = parseGitHubUrl(url);
+        if (gitHubInfo) {
+          await writeRepoMetadata(targetPath, {
+            owner: gitHubInfo.owner,
+            repo: gitHubInfo.repo,
+            branch: gitHubInfo.branch,
+            sourceUrl: url,
+            method: 'git',
+          }).catch(() => undefined);
+        }
         return NextResponse.json({ path: targetPath, method: 'git' });
       } catch (gitError: any) {
         console.warn('Git clone failed, trying GitHub archive fallback:', gitError.message);
@@ -185,6 +210,13 @@ export async function POST(req: NextRequest) {
     }
 
     await cloneViaGitHubArchive(gitHubInfo.owner, gitHubInfo.repo, gitHubInfo.branch, targetPath);
+    await writeRepoMetadata(targetPath, {
+      owner: gitHubInfo.owner,
+      repo: gitHubInfo.repo,
+      branch: gitHubInfo.branch,
+      sourceUrl: url,
+      method: 'github-archive',
+    }).catch(() => undefined);
     return NextResponse.json({ path: targetPath, method: 'github-archive' });
   } catch (error: any) {
     console.error('Cloning Error:', error);
