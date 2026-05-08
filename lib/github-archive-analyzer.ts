@@ -50,6 +50,33 @@ function normalizeFilePath(filePath: string) {
   return filePath.replace(/^\.\//, '').replace(/^[\\/]+/, '');
 }
 
+async function walkDirectory(dir: string, baseDir: string = dir, depth: number = 0, maxDepth: number = 10): Promise<string[]> {
+  const files: string[] = [];
+  if (depth > maxDepth) return files;
+
+  try {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (['.git', 'node_modules', '.next', '.vercel', 'dist', 'build', '.env', '.env.local', '.github', '.gitignore', '.gitlens-meta.json'].includes(entry.name)) {
+        continue;
+      }
+
+      const fullPath = path.join(dir, entry.name);
+      const relativePath = path.relative(baseDir, fullPath);
+
+      if (entry.isDirectory()) {
+        files.push(...await walkDirectory(fullPath, baseDir, depth + 1, maxDepth));
+      } else {
+        files.push(relativePath);
+      }
+    }
+  } catch {
+    // Ignore unreadable paths.
+  }
+
+  return files;
+}
+
 export async function readRepoSourceInfo(repoPath: string): Promise<RepoSourceInfo | null> {
   try {
     const metaPath = path.join(repoPath, '.gitlens-meta.json');
@@ -391,6 +418,15 @@ export async function analyzeGitHubArchive(repoPath: string, source: RepoSourceI
       files: decayFiles.slice(0, 150),
     },
   };
+}
+
+export async function analyzeArchiveRepoOnDisk(repoPath: string) {
+  const source = await readRepoSourceInfo(repoPath);
+  if (!source) return null;
+
+  const files = await walkDirectory(repoPath);
+  const activeFiles = new Set(files);
+  return analyzeGitHubArchive(repoPath, source, activeFiles);
 }
 
 export function simulateDepartureFromOwnership(busFactorDetails: BusFactorDetails, developer: string) {

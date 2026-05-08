@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGitClient, analyzeBusFactor } from '@/lib/git-analyzer';
 import { getHistory } from '@/lib/db';
-import { simulateDepartureFromOwnership } from '@/lib/github-archive-analyzer';
+import { analyzeArchiveRepoOnDisk, simulateDepartureFromOwnership } from '@/lib/github-archive-analyzer';
 import { promises as fsPromises } from 'fs';
 
 export async function POST(req: NextRequest) {
@@ -18,11 +18,12 @@ export async function POST(req: NextRequest) {
 
     // Get original analysis
     const history = getHistory(repo_path, 1);
-    if (history.length === 0) {
+    const snapshot = history[0]?.snapshot || await analyzeArchiveRepoOnDisk(repo_path);
+    if (!snapshot) {
       return NextResponse.json({ error: 'Please run a full analysis first.' }, { status: 400 });
     }
-    const originalBusFactor = history[0].snapshot.busFactor;
-    const busFactorDetails = history[0].snapshot.busFactorDetails;
+    const originalBusFactor = snapshot.busFactor;
+    const busFactorDetails = snapshot.busFactorDetails;
 
     if (busFactorDetails?.fileAuthors) {
       const archiveDeparture = simulateDepartureFromOwnership(busFactorDetails, developer);

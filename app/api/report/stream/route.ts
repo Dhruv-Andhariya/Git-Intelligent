@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
 import { getHistory } from '@/lib/db';
+import { analyzeArchiveRepoOnDisk } from '@/lib/github-archive-analyzer';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,13 +13,12 @@ export async function GET(req: NextRequest) {
     return new NextResponse('Missing repo_path', { status: 400 });
   }
 
-  // Get the latest analysis for this repo
+  // Get the latest analysis for this repo or analyze archive repos on demand.
   const history = getHistory(repo_path, 1);
-  if (history.length === 0) {
+  const snapshot = history[0]?.snapshot || await analyzeArchiveRepoOnDisk(repo_path);
+  if (!snapshot) {
     return new NextResponse('No analysis found for this repo', { status: 404 });
   }
-
-  const snapshot = history[0].snapshot;
   
   // Construct a minimal payload containing only what the Health Report needs
   const analysisData = {
