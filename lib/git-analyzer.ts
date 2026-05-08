@@ -4,6 +4,14 @@ import readline from 'readline';
 import fs from 'fs';
 import path from 'path';
 
+function hasGitRepo(repoPath: string) {
+  try {
+    return fs.existsSync(path.join(repoPath, '.git'));
+  } catch (e) {
+    return false;
+  }
+}
+
 export function getGitClient(repoPath: string): SimpleGit {
   const options: Partial<SimpleGitOptions> = {
     baseDir: repoPath,
@@ -31,6 +39,7 @@ async function streamGitLog(repoPath: string, args: string[], onLine: (line: str
 
 export async function analyzeChurn(repoPath: string, activeFiles: Set<string>, branch: string = '--all') {
   try {
+    if (!hasGitRepo(repoPath)) return { labels: [], data: [] };
     const fileCounts: Record<string, number> = {};
 
     await streamGitLog(repoPath, [branch, '--name-only', '--pretty=format:'], (line) => {
@@ -56,6 +65,7 @@ export async function analyzeChurn(repoPath: string, activeFiles: Set<string>, b
 
 export async function analyzeWorkload(repoPath: string, branch: string = '--all') {
   try {
+    if (!hasGitRepo(repoPath)) return { devs: [], counts: [], topContributor: null, totalCommits: 0 };
     const countMap: Record<string, number> = {};
     let totalCommits = 0;
 
@@ -88,6 +98,7 @@ export async function analyzeWorkload(repoPath: string, branch: string = '--all'
 
 export async function analyzeCommitTypes(repoPath: string, branch: string = '--all') {
   try {
+    if (!hasGitRepo(repoPath)) return { feat: 0, fix: 0, refactor: 0, chore: 0, other: 0 };
     const types = { feat: 0, fix: 0, refactor: 0, chore: 0, other: 0 };
 
     await streamGitLog(repoPath, [branch, '--pretty=%s'], (line) => {
@@ -109,6 +120,7 @@ export async function analyzeCommitTypes(repoPath: string, branch: string = '--a
 
 export async function analyzeBusFactor(repoPath: string, activeFiles: Set<string>, excludeDeveloper?: string, branch: string = '--all') {
   try {
+    if (!hasGitRepo(repoPath)) return { score: 10, flaggedFiles: [] };
     const fileAuthors: Record<string, Record<string, number>> = {};
     const ALL_AUTHORS = new Set<string>();
 
@@ -269,6 +281,7 @@ export async function analyzeAutomation(repoPath: string, churnData: any, busFac
 
 export async function analyzeKnowledgeDecay(repoPath: string, activeFilesSet: Set<string>, branch: string = '--all') {
   try {
+    if (!hasGitRepo(repoPath)) return { healthScore: 0, files: [] };
     const activeFiles = Array.from(activeFilesSet);
     const fileAuthorDates: Record<string, Record<string, number>> = {};
 
